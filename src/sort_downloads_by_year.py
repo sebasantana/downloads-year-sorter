@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import stat
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +16,33 @@ class Options:
     date_source: str       # "created" | "modified"
     dry_run: bool
     include_dirs: bool
+    include_links: bool
     verbose: bool
+
+
+def default_downloads_dir() -> Path:
+    home = Path.home()
+    candidates: list[Path]
+    if os.name == "nt":
+        candidates = []
+        onedrive = os.environ.get("OneDrive")
+        if onedrive:
+            candidates.append(Path(onedrive) / "Downloads")
+        userprofile = os.environ.get("USERPROFILE")
+        if userprofile:
+            candidates.append(Path(userprofile) / "Downloads")
+        candidates.append(home / "Downloads")
+        candidates.append(home / "OneDrive" / "Downloads")
+    else:
+        candidates = [home / "Downloads"]
+
+    for path in candidates:
+        try:
+            if path.exists() and path.is_dir():
+                return path
+        except OSError:
+            continue
+    return candidates[0]
 
 
 def file_year(p: Path, date_source: str) -> int:
@@ -43,10 +71,29 @@ def unique_destination(dest: Path) -> Path:
         i += 1
 
 
-def iter_entries(root: Path, include_dirs: bool):
-    for entry in root.iterdir():
+def is_windows_junction(path: Path) -> bool:
+    if os.name != "nt":
+        return False
+    is_junction = getattr(path, "is_junction", None)
+    if callable(is_junction):
+        try:
+            return bool(is_junction())
+        except OSError:
+            return False
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    attrs = getattr(st, "st_file_attributes", 0)
+    return bool(attrs & stat.FILE_ATTRIBUTE_REPARSE_POINT) and path.is_dir() and not path.is_symlink()
+
+
+def iter_entries(root: Path, include_dirs: bool, include_links: bool):
+    for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         # Skip our own year folders to avoid loops
         if entry.is_dir() and entry.name.isdigit() and len(entry.name) == 4:
+            continue
+        if (entry.is_symlink() or is_windows_junction(entry)) and not include_links:
             continue
         if entry.is_dir() and not include_dirs:
             continue
@@ -54,7 +101,7 @@ def iter_entries(root: Path, include_dirs: bool):
 
 
 def plan_ops(opts: Options):
-    for entry in iter_entries(opts.downloads, opts.include_dirs):
+    for entry in iter_entries(opts.downloads, opts.include_dirs, opts.include_links):
         try:
             y = file_year(entry, opts.date_source)
         except Exception as e:
@@ -63,7 +110,15 @@ def plan_ops(opts: Options):
             continue
 
         target_dir = opts.downloads / str(y)
-        target_dir.mkdir(exist_ok=True)
+        if target_dir.exists() and not target_dir.is_dir():
+            print(f"[WARN] Year target is not a directory, skipping {entry}: {target_dir}")
+            continue
+        if not opts.dry_run:
+            try:
+                target_dir.mkdir(exist_ok=True)
+            except OSError as e:
+                print(f"[WARN] Cannot create target dir for {entry}: {e}")
+                continue
 
         dest = unique_destination(target_dir / entry.name)
         yield entry, dest
@@ -85,7 +140,7 @@ def main():
     )
     ap.add_argument(
         "--downloads",
-        default=str(Path.home() / "Downloads"),
+        default=str(default_downloads_dir()),
         help="Path to Downloads folder (default: ~/Downloads)",
     )
     ap.add_argument(
@@ -111,6 +166,11 @@ def main():
         help="Also move/copy directories (default: only files)",
     )
     ap.add_argument(
+        "--include-links",
+        action="store_true",
+        help="Also include symlinks/junctions (default: skip for safety)",
+    )
+    ap.add_argument(
         "--verbose",
         action="store_true",
         help="More logs",
@@ -123,6 +183,7 @@ def main():
         date_source=args.date_source,
         dry_run=args.dry_run,
         include_dirs=args.include_dirs,
+        include_links=args.include_links,
         verbose=args.verbose,
     )
 
