@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "downloads-year-sorter"
+version = "0.2.0"
+description = "Organize a Downloads folder into year-based folders, safely."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Seba Santana" }]
+keywords = ["downloads", "organizer", "cli", "windows", "files"]
+classifiers = [
+    "Environment :: Console",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+downloads-year-sorter = "sort_downloads_by_year:main"
+
+[project.urls]
+Repository = "https://github.com/sebasantana/downloads-year-sorter"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = ["sort_downloads_by_year"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+# Windows env var names are case-insensitive; "OneDrive" is how Windows spells it.
+ignore = ["SIM112"]

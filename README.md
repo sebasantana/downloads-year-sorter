@@ -1,81 +1,113 @@
 # Downloads Year Sorter
 
+[![CI](https://github.com/sebasantana/downloads-year-sorter/actions/workflows/ci.yml/badge.svg)](https://github.com/sebasantana/downloads-year-sorter/actions/workflows/ci.yml)
+
 Sort files in your Downloads folder into `YYYY` subfolders by file timestamp.
+Built for Windows (OneDrive-aware), works on macOS and Linux too. No dependencies.
 
 ## Requirements
 
 - Python 3.10+
 
-## Usage
+## Install
 
-Run from the repository root:
+```bash
+pipx install git+https://github.com/sebasantana/downloads-year-sorter
+```
+
+Or with uv:
+
+```bash
+uv tool install git+https://github.com/sebasantana/downloads-year-sorter
+```
+
+Or run the script directly without installing:
 
 ```bash
 python src/sort_downloads_by_year.py --dry-run
 ```
 
-Common options:
+## Usage
 
-- `--downloads PATH`: downloads folder to process.
+Always preview first:
+
+```bash
+downloads-year-sorter --dry-run
+```
+
+Options:
+
+- `--downloads PATH`: downloads folder to process. Environment variables are expanded (`%OneDrive%` on Windows, `$HOME` elsewhere). Default: auto-detected.
 - `--mode move|copy`: move (default) or copy entries.
-- `--date-source created|modified`: timestamp used to choose year.
+- `--date-source created|modified`: timestamp used to choose the year (default: `created`).
 - `--dry-run`: preview actions without changing files.
 - `--include-dirs`: include directories (default is files only).
 - `--include-links`: include symlinks/junctions (default is skip for safety).
-- `--verbose`: print warnings for skipped/problem entries.
+- `--verbose`: also log skipped entries and timestamp fallbacks.
+
+Exit code is `0` on success and `1` if any transfer failed.
 
 ## Examples
 
-Preview what would happen:
+Preview what would happen, including skipped entries:
 
 ```bash
-python src/sort_downloads_by_year.py --dry-run --verbose
+downloads-year-sorter --dry-run --verbose
 ```
 
 Move files in place using modified time:
 
 ```bash
-python src/sort_downloads_by_year.py --date-source modified
+downloads-year-sorter --date-source modified
 ```
 
 Copy files from OneDrive Downloads into year folders:
 
 ```bash
-python src/sort_downloads_by_year.py --mode copy --downloads "%OneDrive%\\Downloads"
+downloads-year-sorter --mode copy --downloads "%OneDrive%\Downloads"
 ```
 
 Include directories too:
 
 ```bash
-python src/sort_downloads_by_year.py --include-dirs
+downloads-year-sorter --include-dirs
 ```
 
-## Safety Notes
+## Which date is "created"?
 
-- Name collisions are handled by appending ` (1)`, ` (2)`, etc.
+| Platform | `--date-source created` uses |
+|---|---|
+| Windows | File creation time |
+| macOS | File creation time (`st_birthtime`) |
+| Linux | Modified time (most Linux filesystems don't expose creation time to Python) |
+
+`st_ctime` is never used on macOS/Linux, because there it means "metadata last changed", not "created".
+
+## Safety
+
+- Existing files are never overwritten. Name collisions get ` (1)`, ` (2)`, etc. This also covers collisions between files in the same run and is case-insensitive, as on Windows and macOS filesystems.
 - Symlinks and Windows junction/reparse points are skipped by default.
+- Existing `YYYY` folders are never re-processed.
 - If a year path exists as a file (not a directory), that item is skipped with a warning.
 - `--dry-run` does not create folders or modify files.
+- Individual failures (locked files, permissions) are reported without aborting the remaining operations.
 
-## Manual Test Plan
+## Development
 
-1. Create a temp folder with:
-   - two files from different years,
-   - one file that collides with a name already inside a year folder,
-   - one subdirectory,
-   - one symlink/junction (if supported),
-   - one file set to read-only.
-2. Run `--dry-run --verbose` and verify:
-   - planned actions look correct,
-   - symlink/junction is skipped unless `--include-links` is set,
-   - no folders/files are created or moved.
-3. Run in `--mode copy` and verify:
-   - source files remain,
-   - copies appear in year folders,
-   - collision file gets a suffixed name.
-4. Run in `--mode move` and verify:
-   - source files are moved,
-   - failures (for locked/permission cases) are reported without crashing all operations.
-5. On Windows, test with:
-   - default path detection (local Downloads and OneDrive Downloads),
-   - long path examples if long-path support is enabled in OS policy.
+```bash
+uv sync
+uv run pytest
+uv run ruff check . && uv run ruff format --check .
+```
+
+CI runs the tests on Windows, macOS and Linux with Python 3.10 and 3.13.
+
+Manual checks still worth doing on Windows before a release:
+
+- default path detection (local Downloads and OneDrive Downloads, including files-on-demand placeholders),
+- junctions are skipped unless `--include-links` is set,
+- long paths, if long-path support is enabled in OS policy.
+
+## License
+
+MIT
